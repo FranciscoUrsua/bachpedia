@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Genre {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  works Work[]
+}
+
+model Key {
+  id    Int    @id @default(autoincrement())
+  name  String @unique      // "A minor", "D major"
+  works Work[]
+}
+
+model Person {
+  id          Int     @id @default(autoincrement())
+  name        String
+  defaultRole String?
+  works       Work[]  @relation("ComposerWorks")
+}
+
+model Instrument {
+  id     Int     @id @default(autoincrement())
+  name   String  @unique
+  family String?
+  works  WorkInstrumentation[]
+}
+
+model Work {
+  id               Int     @id @default(autoincrement())
+  composer         Person  @relation("ComposerWorks", fields: [composerId], references: [id])
+  composerId       Int
+  bwvId            Int?
+  bwvFull          String  @unique
+  anhang           Boolean @default(false)
+  title            String
+  altTitles        String?
+  genre            Genre   @relation(fields: [genreId], references: [id])
+  genreId          Int
+  subgenre         String?
+  key              Key?    @relation(fields: [keyId], references: [id])
+  keyId            Int?
+  mode             String?
+  opusOrCollection String?
+  movementsCount   Int?
+  durationMinEst   Int?
+  language         String?
+  authenticity     String  @default("authentic")
+  dateCompStart    String?
+  dateCompEnd      String?
+  placeComp        String?
+  versionNotes     String?
+  workGroup        String?
+
+  // --- Autorelación correcta (padre/hijos) ---
+  parentWorkId Int?
+  parentWork   Work?  @relation("Parent", fields: [parentWorkId], references: [id])
+  children     Work[] @relation("Parent") // <-- reemplaza cualquier "Work Work[]"
+
+  notes            String?
+  primarySourceUrl String?
+  spotifyUrl       String?
+  youtubeUrl       String?
+
+  instruments WorkInstrumentation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WorkInstrumentation {
+  work         Work       @relation(fields: [workId], references: [id])
+  workId       Int
+  instrument   Instrument @relation(fields: [instrumentId], references: [id])
+  instrumentId Int
+  count        Int?
+  obbligato    Boolean    @default(false)
+  notes        String?
+
+  @@id([workId, instrumentId])
+}
