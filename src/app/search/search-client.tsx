@@ -2,6 +2,7 @@
 
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 
 type Item = {
   id: number;
@@ -122,7 +123,9 @@ export function SearchClient() {
       <ul className="divide-y">
         {items.map((w) => (
           <li key={w.id} className="py-3">
-            <div className="font-medium">{w.bwvFull} — {w.title}</div>
+            <div className="font-medium">
+              <Link href={`/works/${w.id}`}>{w.bwvFull} — {w.title}</Link>
+            </div>
             <div className="text-sm text-gray-600">
               {w.relevance !== undefined ? `relevancia: ${Number(w.relevance).toFixed(3)} • ` : ''}
               {w.bwvId ? `BWV ${w.bwvId}` : ''}
