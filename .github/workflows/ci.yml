@@ -9,6 +9,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # <<< AÑADE ESTO >>>
+    env:
+      DATABASE_URL: "mysql://user:pass@127.0.0.1:3306/_ci_dummy"
+      SHADOW_DATABASE_URL: "mysql://user:pass@127.0.0.1:3306/_ci_shadow"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
