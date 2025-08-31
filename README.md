@@ -1,2 +1,2 @@
 # bachpedia
-App for bachpedia.com
+App for bachpedia.com.
