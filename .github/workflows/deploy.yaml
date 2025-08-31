@@ -20,8 +20,6 @@ jobs:
       # (Opcional) Lint rápido de PHP
       - name: PHP syntax check
         run: |
-          sudo apt-get update
-          sudo apt-get install -y php-cli
           find public app -name "*.php" -print0 | xargs -0 -n1 -P2 php -l
 
       # (Opcional) Composer si lo usas (sin framework también vale)
@@ -36,7 +34,7 @@ jobs:
         uses: burnett01/rsync-deployments@7.1.0
         with:
           switches: -azvr --delete --exclude=".git/" --exclude=".github/"
-          path: public/
+          path: /
           remote_path: ${{ secrets.DEPLOY_PATH }}
           remote_host: ${{ secrets.DEPLOY_HOST }}
           remote_port: ${{ secrets.DEPLOY_PORT }}
