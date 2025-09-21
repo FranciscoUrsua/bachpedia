@@ -177,19 +177,23 @@ $facetInstr = $stFI->fetchAll();
 
   <p style="margin:.5rem 0;color:#666"><?= $total ?> resultados • página <?= $page ?></p>
 
-  <ul style="list-style:none;padding:0;margin:0;border-top:1px solid #ddd">
-    <?php foreach ($items as $w): ?>
-      <li style="padding:.6rem 0;border-bottom:1px solid #eee">
-        <div style="font-weight:600">
-          <a href="/work.php?id=<?= (int)$w['id'] ?>"><?= e($w['bwvFull'] ?? '') ?> — <?= e($w['title']) ?></a>
-        </div>
-        <div style="color:#555;font-size:12px">
-          <?= isset($w['relevance']) ? 'relevancia: ' . number_format((float)$w['relevance'], 3) . ' • ' : '' ?>
-          <?= $w['bwvId'] ? 'BWV ' . (int)$w['bwvId'] : '' ?>
-        </div>
-      </li>
-    <?php endforeach; ?>
-  </ul>
+<ul style="list-style:none;padding:0;margin:0;border-top:1px solid #ddd">
+  <?php foreach ($items as $w): ?>
+    <li style="padding:.6rem 0;border-bottom:1px solid #eee">
+      <div style="font-weight:600">
+        <a href="/work.php?id=<?= (int)$w['id'] ?>">
+          <?= e($w['title']) ?>
+        </a>
+      </div>
+      <div style="color:#555;font-size:12px">
+        <?php if ($useFulltext && isset($w['relevance'])): ?>
+          relevancia: <?= number_format((float)$w['relevance'], 3) ?>
+        <?php endif; ?>
+      </div>
+    </li>
+  <?php endforeach; ?>
+</ul>
+
 
   <div style="display:flex;gap:.5rem;margin-top:.8rem">
     <?php if ($page>1): ?>
