@@ -1,206 +1,256 @@
 <?php
-declare(strict_types=1);
-require __DIR__ . '/../app/db.php'; // devuelve $pdo (PDO conectado)
+// /public/search.php
 
+declare(strict_types=1);
+mb_internal_encoding('UTF-8');
+
+$startTime = microtime(true);
+$q = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
+$dataPath = realpath(__DIR__ . '/../app/data/works.csv'); // CSV FUERA DE /public
+
+// Utilidades ----------
 function e(string $s): string { return htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); }
 
-// --- leer querystring
-$q            = isset($_GET['q']) ? trim((string)$_GET['q']) : '';
-$genreId      = isset($_GET['genreId']) ? (int)$_GET['genreId'] : 0;
-$keyId        = isset($_GET['keyId']) ? (int)$_GET['keyId'] : 0;
-$instrumentId = isset($_GET['instrumentId']) ? (int)$_GET['instrumentId'] : 0;
-$sort         = $_GET['sort'] ?? 'relevance'; // relevance | bwv_asc | bwv_desc | title_asc | title_desc
-$page         = max(1, (int)($_GET['page'] ?? 1));
-$pageSize     = min(100, max(1, (int)($_GET['pageSize'] ?? 20)));
-$offset       = ($page - 1) * $pageSize;
-
-// --- eliges FULLTEXT solo si hay algún token con >=3 letras o >=3 dígitos (InnoDB default: 3)
-function is_fulltext_candidate(string $q): bool {
-  return (bool)preg_match('/\p{L}{3,}|\d{3,}/u', $q);
+function normalize(string $s): string {
+  $s = mb_strtolower($s, 'UTF-8');
+  $trans = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
+  if ($trans !== false) $s = $trans;
+  $s = preg_replace('/[^a-z0-9\s\-]/', ' ', $s);
+  $s = preg_replace('/\s+/', ' ', $s);
+  return trim($s);
 }
-$useFulltext = ($q !== '') && is_fulltext_candidate($q);
 
-// --- construir WHERE común (con o sin MATCH)
-function build_where(array $opts): array {
-  ['q'=>$q, 'genreId'=>$genreId, 'keyId'=>$keyId, 'instrumentId'=>$instrumentId, 'useFulltext'=>$useFulltext] = $opts;
-  $where = [];
-  $params = [];
-  if ($genreId)      { $where[] = 'w.genreId = :genreId'; $params[':genreId'] = $genreId; }
-  if ($keyId)        { $where[] = 'w.keyId   = :keyId';   $params[':keyId']   = $keyId; }
-  if ($instrumentId) {
-    $where[] = 'EXISTS (SELECT 1 FROM WorkInstrumentation wi WHERE wi.workId = w.id AND wi.instrumentId = :instrId)';
-    $params[':instrId'] = $instrumentId;
+function highlight(string $text, string $needle): string {
+  if ($needle === '') return e($text);
+  $quoted = preg_quote($needle, '/');
+  return preg_replace_callback("/($quoted)/i", function($m){
+    return '<mark>'.$m[1].'</mark>';
+  }, e($text));
+}
+
+// Detectar si el usuario ha escrito un BWV (bwv232, BWV 232, 232, 232a, etc.)
+$requestedBWV = null;
+if ($q !== '') {
+  if (preg_match('/\b(?:bwv)?\s*(\d+[a-z]?)\b/i', $q, $m)) {
+    $requestedBWV = strtolower($m[1]); // ej: "232" o "1007a"
   }
-  if ($useFulltext) {
-    $where[] = 'MATCH (w.bwvFull, w.title, w.altTitles, w.opusOrCollection, w.notes) AGAINST (:q IN BOOLEAN MODE)';
-    $params[':q'] = $q;
-  } elseif ($q !== '') {
-    // Fallback para consultas cortas/stopwords
-    $where[] = '(w.title LIKE :like OR w.altTitles LIKE :like OR w.opusOrCollection LIKE :like OR w.bwvFull LIKE :like)';
-    $params[':like'] = '%' . $q . '%';
+}
+
+$results = [];
+$errorMsg = null;
+$totalRows = 0;
+
+if (!is_readable((string)$dataPath)) {
+  $errorMsg = "No se puede leer el fichero de datos en /app/data/works.csv (ajusta la ruta si es necesario).";
+} elseif ($q !== '') {
+  try {
+    $file = new SplFileObject($dataPath);
+    $file->setFlags(SplFileObject::READ_CSV | SplFileObject::SKIP_EMPTY);
+    $file->setCsvControl(',');
+
+    // Cabecera
+    $header = $file->fgetcsv();
+    if ($header === false) { throw new RuntimeException("CSV vacío o ilegible."); }
+    $header = array_map('trim', $header);
+    $idx = array_flip($header);
+
+    $need = ['BWV','Title','Year','Instrumentation','Key','Genre','Duration','OpenOpusID'];
+    foreach ($need as $h) {
+      if (!isset($idx[$h])) throw new RuntimeException("Falta la columna '$h' en el CSV.");
+    }
+
+    $normQ = normalize($q);
+
+    foreach ($file as $row) {
+      if (!is_array($row) || $row === [null] || $row === false) continue;
+      // Rellena hasta el número de columnas de cabecera
+      $row = array_pad($row, count($header), '');
+      $row = array_map('trim', $row);
+      $totalRows++;
+
+      $BWV  = (string)($row[$idx['BWV']] ?? '');
+      $Title= (string)($row[$idx['Title']] ?? '');
+      $Year = (string)($row[$idx['Year']] ?? '');
+      $Instr= (string)($row[$idx['Instrumentation']] ?? '');
+      $Key  = (string)($row[$idx['Key']] ?? '');
+      $Genre= (string)($row[$idx['Genre']] ?? '');
+      $Dur  = (string)($row[$idx['Duration']] ?? '');
+      $OOID = (string)($row[$idx['OpenOpusID']] ?? '');
+
+      if ($BWV === '' && $Title === '') continue;
+
+      $match = false;
+
+      if ($requestedBWV !== null) {
+        // Normaliza el BWV del CSV: quita "BWV", espacios y símbolos
+        $normBwvCsv = strtolower(preg_replace('/[^0-9a-z]/', '', $BWV));
+        // También contempla que a veces viene solo el número (sin "BWV")
+        if ($normBwvCsv === $requestedBWV) {
+          $match = true;
+        }
+      }
+
+      // Si no es búsqueda por BWV (o no coincidió), busca por título (substring case-insensitive)
+      if (!$match) {
+        $normTitle = normalize($Title);
+        if ($normQ !== '' && $normTitle !== '' && str_contains($normTitle, $normQ)) {
+          $match = true;
+        }
+      }
+
+      if ($match) {
+        $results[] = [
+          'BWV' => $BWV,
+          'Title' => $Title,
+          'Year' => $Year,
+          'Instrumentation' => $Instr,
+          'Key' => $Key,
+          'Genre' => $Genre,
+          'Duration' => $Dur,
+          'OpenOpusID' => $OOID,
+        ];
+      }
+      // Límite de seguridad para no listar demasiado
+      if (count($results) >= 200) break;
+    }
+  } catch (Throwable $e) {
+    $errorMsg = "Error leyendo el CSV: " . $e->getMessage();
   }
-  $sql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
-  return [$sql, $params];
 }
 
-[$whereSql, $params] = build_where(compact('q','genreId','keyId','instrumentId','useFulltext'));
-
-// --- ORDER BY
-switch ($sort) {
-  case 'bwv_desc':   $orderBy = 'w.bwvId IS NULL, w.bwvId DESC, w.bwvFull DESC'; break;
-  case 'title_asc':  $orderBy = 'w.title ASC,  w.bwvFull ASC'; break;
-  case 'title_desc': $orderBy = 'w.title DESC, w.bwvFull DESC'; break;
-  case 'bwv_asc':    $orderBy = 'w.bwvId IS NULL, w.bwvId ASC,  w.bwvFull ASC'; break;
-  case 'relevance':
-  default:
-    $orderBy = $useFulltext
-      ? 'relevance DESC, w.bwvId IS NULL, w.bwvId ASC, w.bwvFull ASC'
-      : 'w.bwvId IS NULL, w.bwvId ASC, w.bwvFull ASC';
-}
-
-$selectRelevance = $useFulltext
-  ? ', MATCH (w.bwvFull, w.title, w.altTitles, w.opusOrCollection, w.notes) AGAINST (:q2 IN BOOLEAN MODE) AS relevance'
-  : ', 0 AS relevance';
-
-// --- ITEMS
-$sqlItems = "
-  SELECT w.id, w.bwvId, w.bwvFull, w.title, w.genreId, w.keyId
-         $selectRelevance
-  FROM Work w
-  $whereSql
-  ORDER BY $orderBy
-  LIMIT :limit OFFSET :offset
-";
-$paramsItems = $params;
-if ($useFulltext) { $paramsItems[':q2'] = $q; }
-$paramsItems[':limit']  = $pageSize;
-$paramsItems[':offset'] = $offset;
-
-$stmt = $pdo->prepare($sqlItems);
-$stmt->execute($paramsItems);
-$items = $stmt->fetchAll();
-
-// --- COUNT
-$sqlCount = "SELECT COUNT(DISTINCT w.id) AS total FROM Work w $whereSql";
-$stmt = $pdo->prepare($sqlCount);
-$stmt->execute($params);
-$total = (int)($stmt->fetchColumn() ?: 0);
-
-// --- FACETS: recomputar WHERE excluyendo cada filtro de su propia faceta
-// Géneros
-[$wg, $pg] = build_where(['q'=>$q, 'genreId'=>0, 'keyId'=>$keyId, 'instrumentId'=>$instrumentId, 'useFulltext'=>$useFulltext]);
-$sqlFG = "
-  SELECT g.id, g.name, COUNT(DISTINCT w.id) AS n
-  FROM Genre g
-  LEFT JOIN Work w ON w.genreId = g.id
-  $wg
-  GROUP BY g.id, g.name
-  ORDER BY g.name ASC
-";
-$stFG = $pdo->prepare($sqlFG);
-$stFG->execute($pg);
-$facetGenres = $stFG->fetchAll();
-
-// Tonalidades
-[$wk, $pk] = build_where(['q'=>$q, 'genreId'=>$genreId, 'keyId'=>0, 'instrumentId'=>$instrumentId, 'useFulltext'=>$useFulltext]);
-$sqlFK = "
-  SELECT k.id, k.name, COUNT(DISTINCT w.id) AS n
-  FROM `Key` k
-  LEFT JOIN Work w ON w.keyId = k.id
-  $wk
-  GROUP BY k.id, k.name
-  ORDER BY k.name ASC
-";
-$stFK = $pdo->prepare($sqlFK);
-$stFK->execute($pk);
-$facetKeys = $stFK->fetchAll();
-
-// Instrumentos
-[$wi, $pi] = build_where(['q'=>$q, 'genreId'=>$genreId, 'keyId'=>$keyId, 'instrumentId'=>0, 'useFulltext'=>$useFulltext]);
-$sqlFI = "
-  SELECT i.id, i.name, COUNT(DISTINCT w.id) AS n
-  FROM Instrument i
-  LEFT JOIN WorkInstrumentation wi ON wi.instrumentId = i.id
-  LEFT JOIN Work w ON w.id = wi.workId
-  $wi
-  GROUP BY i.id, i.name
-  ORDER BY i.name ASC
-";
-$stFI = $pdo->prepare($sqlFI);
-$stFI->execute($pi);
-$facetInstr = $stFI->fetchAll();
-
-// --- HTML mínimo
+$elapsedMs = (int)round((microtime(true) - $startTime) * 1000);
 ?>
 <!doctype html>
-<meta charset="utf-8">
-<title>Bachpedia — Búsqueda</title>
-<link rel="stylesheet" href="/assets/base.css">
-<div class="wrap" style="max-width:960px;margin:2rem auto;font:14px system-ui,sans-serif">
-  <h1>Búsqueda</h1>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Búsqueda — Bachpedia</title>
+  <meta name="description" content="Busca obras por título o por índice BWV en Bachpedia.">
+  <link rel="stylesheet" href="/css/bootstrap-bachpedia.min.css">
+</head>
+<body class="d-flex flex-column min-vh-100">
+  <header class="py-3 border-bottom">
+    <div class="container d-flex align-items-center justify-content-between">
+      <a href="/" class="d-inline-flex align-items-center text-decoration-none">
+        <img src="/img/bachpedia-logo.png" alt="Bachpedia" height="48" class="me-3" />
+        <span class="fs-4 fw-semibold">Bachpedia</span>
+      </a>
+      <a class="btn btn-outline-light" href="/">Inicio</a>
+    </div>
+  </header>
 
-  <form method="get" style="display:grid;grid-template-columns:1fr 180px 180px 220px 180px auto;gap:.5rem;">
-    <input name="q" value="<?= e($q) ?>" placeholder='BWV, título, "frase", +incluye -excluye *prefijo'>
-    <select name="genreId">
-      <option value="">Género</option>
-      <?php foreach ($facetGenres as $g): ?>
-        <option value="<?= (int)$g['id'] ?>" <?= $genreId===(int)$g['id']?'selected':'' ?>>
-          <?= e($g['name']) ?> (<?= (int)$g['n'] ?>)
-        </option>
-      <?php endforeach; ?>
-    </select>
-    <select name="keyId">
-      <option value="">Tonalidad</option>
-      <?php foreach ($facetKeys as $k): ?>
-        <option value="<?= (int)$k['id'] ?>" <?= $keyId===(int)$k['id']?'selected':'' ?>>
-          <?= e($k['name']) ?> (<?= (int)$k['n'] ?>)
-        </option>
-      <?php endforeach; ?>
-    </select>
-    <select name="instrumentId">
-      <option value="">Instrumento</option>
-      <?php foreach ($facetInstr as $i): ?>
-        <option value="<?= (int)$i['id'] ?>" <?= $instrumentId===(int)$i['id']?'selected':'' ?>>
-          <?= e($i['name']) ?> (<?= (int)$i['n'] ?>)
-        </option>
-      <?php endforeach; ?>
-    </select>
-    <select name="sort">
-      <option value="relevance" <?= $sort==='relevance'?'selected':'' ?>>Orden: relevancia</option>
-      <option value="bwv_asc"   <?= $sort==='bwv_asc'?'selected':''   ?>>Orden: BWV ↑</option>
-      <option value="bwv_desc"  <?= $sort==='bwv_desc'?'selected':''  ?>>Orden: BWV ↓</option>
-      <option value="title_asc" <?= $sort==='title_asc'?'selected':'' ?>>Orden: título A–Z</option>
-      <option value="title_desc"<?= $sort==='title_desc'?'selected':''?>>Orden: título Z–A</option>
-    </select>
-    <button>Buscar</button>
-  </form>
+  <main class="flex-grow-1">
+    <section class="py-5">
+      <div class="container">
+        <h1 class="mb-4">Buscar obras</h1>
 
-  <p style="margin:.5rem 0;color:#666"><?= $total ?> resultados • página <?= $page ?></p>
+        <form class="mb-4" action="/search.php" method="get" role="search">
+          <div class="row g-2 align-items-center">
+            <div class="col-12 col-md-9">
+              <label for="q" class="visually-hidden">Buscar por título o número BWV</label>
+              <input
+                type="search"
+                class="form-control form-control-lg"
+                id="q"
+                name="q"
+                placeholder="Ej.: “BWV 232” o “Ich habe genug”"
+                value="<?= e($q) ?>"
+                autofocus
+              >
+            </div>
+            <div class="col-12 col-md-3 d-grid">
+              <button class="btn btn-primary btn-lg" type="submit">Buscar</button>
+            </div>
+          </div>
+        </form>
 
-<ul style="list-style:none;padding:0;margin:0;border-top:1px solid #ddd">
-  <?php foreach ($items as $w): ?>
-    <li style="padding:.6rem 0;border-bottom:1px solid #eee">
-      <div style="font-weight:600">
-        <a href="/work.php?id=<?= (int)$w['id'] ?>">
-          <?= e($w['title']) ?>
-        </a>
-      </div>
-      <div style="color:#555;font-size:12px">
-        <?php if ($useFulltext && isset($w['relevance'])): ?>
-          relevancia: <?= number_format((float)$w['relevance'], 3) ?>
+        <?php if ($errorMsg): ?>
+          <div class="alert alert-danger" role="alert">
+            <?= e($errorMsg) ?>
+          </div>
+        <?php elseif ($q === ''): ?>
+          <div class="alert alert-info">
+            Escribe un <strong>título</strong> o un <strong>índice BWV</strong> para comenzar.
+          </div>
+          <div class="small opacity-75">
+            Ejemplos rápidos:
+            <a class="link-light" href="/search.php?q=BWV+232">BWV 232</a> ·
+            <a class="link-light" href="/search.php?q=BWV+1007">BWV 1007</a> ·
+            <a class="link-light" href="/search.php?q=Ich+habe+genug">Ich habe genug</a>
+          </div>
+        <?php else: ?>
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+              <span class="badge bg-secondary me-2">Consulta</span>
+              <code><?= e($q) ?></code>
+            </div>
+            <div class="small opacity-75">
+              <?= count($results) ?> resultado(s) en <?= $elapsedMs ?> ms
+            </div>
+          </div>
+
+          <?php if (empty($results)): ?>
+            <div class="alert alert-warning">
+              No se han encontrado resultados. Prueba con otro título o revisa el número BWV.
+            </div>
+          <?php else: ?>
+            <div class="list-group">
+              <?php foreach ($results as $r): ?>
+                <?php
+                  $titleHighlighted = $requestedBWV ? e($r['Title']) : highlight($r['Title'], $q);
+                  $bwvDisp = $r['BWV'] !== '' ? e($r['BWV']) : '—';
+                  $genre   = $r['Genre'] !== '' ? e($r['Genre']) : '—';
+                  $year    = $r['Year'] !== '' ? e($r['Year']) : '—';
+                  $key     = $r['Key'] !== '' ? e($r['Key']) : '—';
+                  $dur     = $r['Duration'] !== '' ? e($r['Duration']) : '—';
+                  // Enlace a ficha individual (futuro)
+                  $bwvForUrl = urlencode(preg_replace('/\s+/','', $r['BWV']));
+                ?>
+                <a href="/work.php?bwv=<?= $bwvForUrl ?>" class="list-group-item list-group-item-action py-3">
+                  <div class="d-flex w-100 justify-content-between">
+                    <h2 class="h5 mb-1"><?= $titleHighlighted ?></h2>
+                    <span class="badge bg-primary align-self-start">BWV <?= e(preg_replace('/^bwv\s*/i','', $r['BWV'])) ?></span>
+                  </div>
+                  <div class="mt-1 small text-muted">
+                    <span class="me-3"><strong>Género:</strong> <?= $genre ?></span>
+                    <span class="me-3"><strong>Tonalidad:</strong> <?= $key ?></span>
+                    <span class="me-3"><strong>Año:</strong> <?= $year ?></span>
+                    <span class="me-3"><strong>Duración:</strong> <?= $dur ?></span>
+                  </div>
+                </a>
+              <?php endforeach; ?>
+            </div>
+
+            <div class="mt-3 small opacity-75">
+              Mostrando hasta 200 resultados como máximo.
+            </div>
+          <?php endif; ?>
+
+          <div class="mt-4">
+            <details class="small">
+              <summary class="mb-2">Sugerencias de búsqueda</summary>
+              <ul class="mb-0">
+                <li>Para una obra concreta usa el índice, p. ej. <code>BWV 147</code>.</li>
+                <li>Puedes buscar por fragmentos del título, p. ej. <code>“Magnificat”</code> o <code>“Ich habe genug”</code>.</li>
+                <li>Soporta sufijos de catálogo, p. ej. <code>BWV 1007a</code>.</li>
+              </ul>
+            </details>
+          </div>
         <?php endif; ?>
       </div>
-    </li>
-  <?php endforeach; ?>
-</ul>
+    </section>
+  </main>
 
-
-  <div style="display:flex;gap:.5rem;margin-top:.8rem">
-    <?php if ($page>1): ?>
-      <a class="btn" href="?<?= e(http_build_query(['q'=>$q,'genreId'=>$genreId?:null,'keyId'=>$keyId?:null,'instrumentId'=>$instrumentId?:null,'sort'=>$sort,'page'=>$page-1,'pageSize'=>$pageSize])) ?>">← Anterior</a>
-    <?php endif; ?>
-    <?php if ($page*$pageSize < $total): ?>
-      <a class="btn" href="?<?= e(http_build_query(['q'=>$q,'genreId'=>$genreId?:null,'keyId'=>$keyId?:null,'instrumentId'=>$instrumentId?:null,'sort'=>$sort,'page'=>$page+1,'pageSize'=>$pageSize])) ?>">Siguiente →</a>
-    <?php endif; ?>
-  </div>
-</div>
+  <footer class="site-footer py-4 mt-auto">
+    <div class="container text-center small">
+      <div>© <?= date('Y') ?> Bachpedia</div>
+      <div class="mt-1">
+        Contenido bajo licencia
+        <a class="link-light text-decoration-underline" href="https://creativecommons.org/licenses/by-sa/4.0/deed.es" target="_blank" rel="license noopener">CC BY-SA 4.0</a>
+        salvo indicación en contrario.
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
