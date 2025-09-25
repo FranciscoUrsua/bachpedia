@@ -1,0 +1,19 @@
+h1, h2, h3 {
+  font-family: $headings-font-family;
+  font-weight: 600;
+  line-height: 1.2;
+}
+h4, h5, h6 { font-family: $font-family-base; font-weight: 600; }
+
+.btn-primary {
+  background-image: linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.05));
+  box-shadow: 0 0.125rem 0.5rem rgba($black-baroque, .35), inset 0 0 0.5px rgba(#fff, .08);
+}
+.btn-primary:hover { background-color: $copper-600; }
+.btn-secondary:hover { background-color: $burgundy-600; }
+
+.site-footer {
+  background: $gray-stone;
+  color: $ivory;
+  border-top: 1px solid $gray-stone;
+}

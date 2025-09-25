@@ -1,0 +1,4 @@
+/public/css/*.min.css
+/public/css/*.map
+/vendor/
+/public/img/generated/*

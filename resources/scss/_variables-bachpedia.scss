@@ -1,0 +1,49 @@
+@import url("https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+
+/* --- Colores corporativos (resumen) --- */
+$black-baroque:   #0B0B0C;
+$anthracite:      #1A1A1C;
+$gray-stone:      #2A2A2D;
+$ivory:           #F0EDE5;
+
+$copper:          #B87333;
+$copper-600:      #9E5F2C;
+$burgundy:        #5C1A1B;
+$burgundy-600:    #4A1416;
+$gold-old:        #D4AF37;
+$moss:            #3E6D4A;
+$carmine:         #8B1E3F;
+$slate-blue:      #4A6B82;
+
+/* --- Asignaciones Bootstrap --- */
+$primary:   $copper;
+$secondary: $burgundy;
+$success:   $moss;
+$danger:    $carmine;
+$warning:   $gold-old;
+$info:      $slate-blue;
+$light:     $ivory;
+$dark:      $anthracite;
+
+$white:     #ffffff;
+$black:     $black-baroque;
+
+/* Grises y mapa de tema (puedes copiar los del mensaje anterior) */
+
+/* Tipografías */
+$font-family-base: 'Inter', sans-serif;
+$headings-font-family: 'Cormorant Garamond', serif;
+
+/* Colores base */
+$body-bg:        $anthracite;
+$body-color:     $ivory;
+$headings-color: $ivory;
+$link-color:         $gold-old;
+$link-hover-color:   $copper;
+
+/* Componentes */
+$card-bg:            $gray-stone;
+$card-border-color:  $gray-stone;
+$border-color:       $gray-stone;
+$focus-ring-opacity: .25;
+$focus-ring-color: rgba($copper, .25);
