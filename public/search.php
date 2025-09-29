@@ -28,7 +28,7 @@ function getPDO(): PDO {
   static $pdo;
   if ($pdo instanceof PDO) return $pdo;
 
-  $cfg = __DIR__ . '/../app/config/db.php';
+  $cfg = __DIR__ . '/../app/config.php';
   if (is_readable($cfg)) {
     $maybe = require $cfg; // Debe retornar un PDO
     if ($maybe instanceof PDO) { $pdo = $maybe; return $pdo; }
