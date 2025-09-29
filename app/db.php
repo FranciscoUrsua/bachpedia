@@ -22,7 +22,7 @@ $dbHost = $config['DB_HOST'] ?? getenv('DB_HOST') ?: 'localhost';
 $dbPort = (string)($config['DB_PORT'] ?? getenv('DB_PORT') ?: '3306');
 $dbName = $config['DB_NAME'] ?? getenv('DB_NAME') ?: 'bachdb';
 $dbUser = $config['DB_USER'] ?? getenv('DB_USER') ?: 'bachuser';
-$dbPass = $config['DB_PASS'] ?? getenv('DB_PASS') ?: '';
+$dbPass = $config['DB_PASS'] ?? getenv('DB_PASS') ?: '!InAspic65';
 
 // DSN: usa utf8mb4 para Unicode completo (MySQL 5.5+ / 8.0+)
 $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $dbHost, $dbPort, $dbName);
