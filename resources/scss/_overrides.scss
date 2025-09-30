@@ -17,3 +17,24 @@ h4, h5, h6 { font-family: $font-family-base; font-weight: 600; }
   color: $ivory;
   border-top: 1px solid $gray-stone;
 }
+
+// Hover legible en resultados (list-group)
+$list-hover: lighten($anthracite, 7%); // aprox. #28282A
+
+.list-group-item {
+  background-color: transparent; // mantiene el fondo oscuro de página
+  color: $ivory;
+  border-color: $gray-800;
+}
+
+.list-group-item.list-group-item-action:hover,
+.list-group-item.list-group-item-action:focus {
+  background-color: $list-hover;
+  color: $ivory;
+}
+
+.list-group-item.active {
+  background-color: $copper;
+  border-color: $copper;
+  color: $anthracite; // texto oscuro sobre cobre
+}
