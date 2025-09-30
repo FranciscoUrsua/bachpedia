@@ -15,11 +15,11 @@ function highlight(string $text, string $needle): string {
   return preg_replace_callback("/($quoted)/i", fn($m) => '<mark>'.$m[1].'</mark>', e($text));
 }
 
-// Detectar BWV escrito como "BWV 232", "232", "bwv232", "232a", etc.
+// Detectar BWV ("BWV 232", "232a", "bwv232", etc.)
 $requestedBWV = null;
 if ($q !== '') {
   if (preg_match('/\b(?:bwv)?\s*([0-9]+[a-z]?)/i', $q, $m)) {
-    $requestedBWV = strtolower($m[1]); // ej: "232" o "1007a"
+    $requestedBWV = strtolower($m[1]); // ej: "232", "1007a"
   }
 }
 
@@ -28,20 +28,21 @@ function getPDO(): PDO {
   static $pdo;
   if ($pdo instanceof PDO) return $pdo;
 
-  $cfg = __DIR__ . '/../app/db.php';
+  $cfg = __DIR__ . '/../app/config/db.php';
   if (is_readable($cfg)) {
     $maybe = require $cfg; // Debe retornar un PDO
     if ($maybe instanceof PDO) { $pdo = $maybe; return $pdo; }
     throw new RuntimeException('El fichero /app/config/db.php debe retornar un PDO válido.');
   }
 
-  // Fallback por entorno o por defecto
   $dsn  = getenv('DB_DSN')  ?: 'mysql:host=127.0.0.1;dbname=bachpedia;charset=utf8mb4';
-  $user = getenv('DB_USER') ?: 'root';
-  $pass = getenv('DB_PASS') ?: '';
+  $user = getenv('DB_USER') ?: 'bachuser';
+  $pass = getenv('DB_PASS') ?: '!InAspic65';
   $pdo = new PDO($dsn, $user, $pass, [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    // No hace falta emular prepares si usamos placeholders únicos
+    PDO::ATTR_EMULATE_PREPARES => false,
   ]);
   return $pdo;
 }
@@ -54,26 +55,25 @@ try {
   if ($q !== '') {
     $pdo = getPDO();
 
-    // Normalizamos a minúsculas para LIKE insensible a mayúsculas
     $kw = mb_strtolower($q);
-    $kwLike = '%'.$kw.'%';
-
-    // Si se detecta BWV, además construimos patrones específicos
+    // Placeholders únicos
     $params = [
-      ':kw' => $kwLike,
+      ':kw1'   => '%'.$kw.'%', // title
+      ':kw2'   => '%'.$kw.'%', // altTitles
+      ':kw3'   => '%'.$kw.'%', // bwvId genérico
       ':limit' => 200,
     ];
 
-    $where = [];
-    $where[] = 'LOWER(title) LIKE :kw';
-    $where[] = 'LOWER(altTitles) LIKE :kw';
-    $where[] = 'LOWER(bwvId) LIKE :kw';
+    $where = [
+      'LOWER(title) LIKE :kw1',
+      'LOWER(altTitles) LIKE :kw2',
+      'LOWER(bwvId) LIKE :kw3',
+    ];
 
     if ($requestedBWV !== null) {
-      // Patrones para captar variantes de BWV en la columna bwvId
-      $params[':bwvCore'] = '%'.$requestedBWV.'%';           // "1007" o "1007a"
-      $params[':bwvWith'] = '%bwv'.$requestedBWV.'%';        // "bwv1007"
-      $params[':bwvSpc']  = '%bwv '.$requestedBWV.'%';       // "bwv 1007"
+      $params[':bwvCore'] = '%'.$requestedBWV.'%';     // "1007" o "1007a"
+      $params[':bwvWith'] = '%bwv'.$requestedBWV.'%';  // "bwv1007"
+      $params[':bwvSpc']  = '%bwv '.$requestedBWV.'%'; // "bwv 1007"
       $where[] = 'LOWER(bwvId) LIKE :bwvCore';
       $where[] = 'LOWER(bwvId) LIKE :bwvWith';
       $where[] = 'LOWER(bwvId) LIKE :bwvSpc';
@@ -93,21 +93,20 @@ try {
         durationEst,
         dateComp
       FROM Work
-      WHERE ".implode(' OR ', $where)."
+      WHERE (" . implode(' OR ', $where) . ")
       LIMIT :limit
     ";
 
     $stmt = $pdo->prepare($sql);
     foreach ($params as $k => $v) {
-      if ($k === ':limit') $stmt->bindValue($k, (int)$v, PDO::PARAM_INT);
-      else                 $stmt->bindValue($k, $v, PDO::PARAM_STR);
+      $stmt->bindValue($k, $k === ':limit' ? (int)$v : (string)$v, $k === ':limit' ? PDO::PARAM_INT : PDO::PARAM_STR);
     }
     $stmt->execute();
     $rows = $stmt->fetchAll();
 
-    // Scoring: coincidencias exactas de BWV normalizado primero
+    // Scoring en PHP para priorizar coincidencia BWV exacta
     $norm = fn(?string $s) => $s === null ? '' : strtolower(preg_replace('/[^0-9a-z]/i', '', $s));
-    $normQ = $requestedBWV ? $requestedBWV : '';
+    $normQ = $requestedBWV ?? '';
 
     foreach ($rows as $r) {
       $score = 0;
@@ -116,20 +115,17 @@ try {
         if ($b === $normQ || $b === 'bwv'.$normQ) $score += 100;
         elseif ($b !== '' && str_contains($b, $normQ)) $score += 60;
       }
-      // Bonus por título que contiene el término
       if ($q !== '' && isset($r['title']) && stripos($r['title'], $q) !== false) $score += 30;
 
       $r['_score'] = $score;
       $results[] = $r;
     }
 
-    // Ordenar por score desc, luego por título
     usort($results, function($a, $b) {
       if ($a['_score'] === $b['_score']) return strnatcasecmp($a['title'] ?? '', $b['title'] ?? '');
       return $b['_score'] <=> $a['_score'];
     });
 
-    // Limitar a 200 por seguridad (ya limitado en SQL, pero por si acaso)
     if (count($results) > 200) $results = array_slice($results, 0, 200);
   }
 } catch (Throwable $e) {
@@ -223,7 +219,7 @@ $elapsedMs = (int)round((microtime(true) - $startTime) * 1000);
                   $key   = $r['key'] ?? '';
                   $instr = $r['instrumentation'] ?? '';
                   $date  = $r['dateComp'] ?? '';
-                  $dur   = $r['durationEst'] !== null && $r['durationEst'] !== '' ? ($r['durationEst'].' min') : '—';
+                  $dur   = ($r['durationEst'] !== null && $r['durationEst'] !== '') ? ($r['durationEst'].' min') : '—';
                   $id    = (int)($r['id'] ?? 0);
                 ?>
                 <a href="/work.php?id=<?= $id ?>" class="list-group-item list-group-item-action py-3">
