@@ -38,3 +38,66 @@ $list-hover: lighten($anthracite, 7%); // aprox. #28282A
   border-color: $copper;
   color: $anthracite; // texto oscuro sobre cobre
 }
+/* ===========================
+   LISTA DE RESULTADOS (list-group)
+   =========================== */
+
+/* Variables de Bootstrap para list-group en modo oscuro */
+.list-group {
+  --bs-list-group-bg: transparent;
+  --bs-list-group-color: #{$ivory};
+  --bs-list-group-border-color: #{$gray-800};
+
+  /* Hover: sin cambiar fondo, sólo color de texto */
+  --bs-list-group-action-hover-bg: transparent;
+  --bs-list-group-action-hover-color: #{$copper};
+
+  /* Activo (por teclado/click): cobre con texto oscuro */
+  --bs-list-group-action-active-bg: #{$copper};
+  --bs-list-group-action-active-color: #{$anthracite};
+}
+
+/* Por si algún estilo previo mete fondo, lo anulamos con prioridad */
+.list-group-item.list-group-item-action:hover,
+.list-group-item.list-group-item-action:focus {
+  background-color: transparent !important;
+  color: $copper !important;
+  border-color: $gray-800;
+}
+
+/* Resalta coincidencias: sin fondo, sólo color de texto */
+.list-group mark {
+  background: transparent;
+  color: $gold-old;
+  padding: 0;
+}
+
+/* ===========================
+   TABLAS (por si alguna usa hover/striped)
+   =========================== */
+
+.table {
+  --bs-table-bg: transparent;
+  --bs-table-color: #{$ivory};
+  --bs-table-border-color: #{$gray-800};
+  --bs-table-striped-bg: rgba(#fff, .02);
+  --bs-table-striped-color: #{$ivory};
+  --bs-table-hover-bg: transparent;   /* no tocar el fondo en hover */
+  --bs-table-hover-color: #{$copper}; /* sólo cambia el color del texto */
+}
+
+/* Aseguramos el comportamiento en tablas con hover */
+.table-hover tbody tr:hover {
+  background-color: transparent !important;
+  color: $copper !important;
+}
+
+/* En tablas "dark" mantenemos el mismo criterio */
+.table-dark {
+  --bs-table-bg: transparent;
+  --bs-table-color: #{$ivory};
+  --bs-table-border-color: #{$gray-800};
+  --bs-table-striped-bg: rgba(#fff, .02);
+  --bs-table-hover-bg: transparent;
+  --bs-table-hover-color: #{$copper};
+}
