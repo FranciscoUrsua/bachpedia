@@ -35,7 +35,7 @@ function getPDO(): PDO {
     throw new RuntimeException('El fichero /app/config/db.php debe retornar un PDO válido.');
   }
 
-  $dsn  = getenv('DB_DSN')  ?: 'mysql:host=127.0.0.1;dbname=bachpedia;charset=utf8mb4';
+  $dsn  = getenv('DB_DSN')  ?: 'mysql:host=127.0.0.1;dbname=bachdb;charset=utf8mb4';
   $user = getenv('DB_USER') ?: 'bachuser';
   $pass = getenv('DB_PASS') ?: '!InAspic65';
   $pdo = new PDO($dsn, $user, $pass, [
