@@ -17,7 +17,7 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
 
-      # (Opcional) Lint rápido de PHP
+      # Lint rápido de PHP
       - name: PHP syntax check
         run: |
           find public app -name "*.php" -print0 | xargs -0 -n1 -P2 php -l
